@@ -1,0 +1,22 @@
+<launch>
+
+	<!-- 主控制节点 -->
+	<node pkg="px4ctrl" type="px4ctrl_node" name="px4ctrl" output="screen">
+        	<!-- <remap from="~odom" to="/vicon_imu_ekf_odom" /> -->
+			
+			<remap from="~odom" to="/vins_fusion/imu_propagate" />
+
+		<remap from="~cmd" to="/position_cmd" />
+
+        <rosparam command="load" file="$(find px4ctrl)/config/ctrl_param_fpv.yaml" />
+	</node>
+
+	<!-- 键盘控制节点 -->
+	<node pkg="px4ctrl" type="keyboard_control_node" name="keyboard_control" output="screen">
+		<!-- 键盘控制参数 -->
+		<param name="move_step" value="0.3" />
+		<param name="yaw_step" value="0.2" />
+		<param name="publish_rate" value="50" />
+	</node>
+ 
+</launch>

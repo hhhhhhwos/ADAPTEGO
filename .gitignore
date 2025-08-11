@@ -1,0 +1,21 @@
+# ROS编译产物
+build/
+devel/
+
+# IDE配置
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+*~
+
+# 编译文件
+*.o
+*.so
+*.a
+
+# 日志文件
+*.log
+__pycache__/
+*.pyc

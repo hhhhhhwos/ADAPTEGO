@@ -1,0 +1,207 @@
+<launch>
+    <!-- 基于现有uav_simulator的自适应混合规划仿真 -->
+    <!-- 集成ego-planner + uav_simulator + 开源项目功能 -->
+    
+    <!-- ========== 基础参数配置 ========== -->
+    <arg name="drone_id" default="0"/>
+    <arg name="init_x" default="0.0"/>
+    <arg name="init_y" default="0.0"/>
+    <arg name="init_z" default="1.0"/>
+    
+    <!-- 自适应功能开关 -->
+    <arg name="use_adaptive_weights" default="true"/>
+    <arg name="use_rl_policy" default="false"/>
+    <arg name="use_swarm_mode" default="false"/>
+    <arg name="collect_data" default="true"/>
+    
+    <!-- 模型路径 -->
+    <arg name="weights_model_path" default="$(find adaptive_planning)/models/adaptive_weights.ts"/>
+    
+    <!-- ========== 1. 基础仿真环境（使用你现有的uav_simulator）========== -->
+    
+    <!-- SO3四旋翼仿真器 -->
+    <node pkg="so3_quadrotor_simulator"
+          type="quadrotor_simulator_so3"
+          name="quadrotor_simulator_so3"
+          output="screen">
+        <param name="rate/odom" value="100.0"/>
+        <param name="simulator/init_state_x" value="$(arg init_x)"/>
+        <param name="simulator/init_state_y" value="$(arg init_y)"/>
+        <param name="simulator/init_state_z" value="$(arg init_z)"/>
+        <remap from="~odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+        <remap from="~cmd" to="/drone_$(arg drone_id)_so3_cmd"/>
+        <remap from="~imu" to="/drone_$(arg drone_id)_sim/imu"/>     
+    </node>
+    
+    <!-- SO3控制器 -->
+    <node pkg="nodelet"
+          type="nodelet"
+          args="standalone so3_control/SO3ControlNodelet"
+          name="so3_control_$(arg drone_id)"
+          required="true"
+          output="screen">
+        <param name="so3_control/init_state_x" value="$(arg init_x)"/>
+        <param name="so3_control/init_state_y" value="$(arg init_y)"/>
+        <param name="so3_control/init_state_z" value="$(arg init_z)"/>
+        <remap from="~odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+        <remap from="~position_cmd" to="/drone_$(arg drone_id)_planning/pos_cmd"/>
+        <remap from="~so3_cmd" to="/drone_$(arg drone_id)_so3_cmd"/>
+        <remap from="~imu" to="/drone_$(arg drone_id)_sim/imu"/>
+        <rosparam file="$(find so3_control)/config/gains_hummingbird.yaml"/>
+        <rosparam file="$(find so3_control)/config/corrections_hummingbird.yaml"/>
+        <param name="mass" value="0.98"/>
+        <param name="use_angle_corrections" value="false"/>
+        <param name="use_external_yaw" value="false"/>
+    </node>
+    
+    <!-- ========== 2. 地图和感知（使用你现有的map_generator）========== -->
+    
+    <!-- 随机森林地图生成器 -->
+    <node pkg="map_generator" name="random_forest" type="random_forest" output="screen">
+        <param name="map/x_size" value="26"/>
+        <param name="map/y_size" value="20"/>
+        <param name="map/z_size" value="3"/>
+        <param name="map/resolution" value="0.1"/>
+        <param name="ObstacleShape/seed" value="1"/>
+        <param name="map/obs_num" value="100"/>
+        <param name="ObstacleShape/lower_rad" value="0.5"/>
+        <param name="ObstacleShape/upper_rad" value="0.7"/>
+        <param name="ObstacleShape/lower_hei" value="0.0"/>
+        <param name="ObstacleShape/upper_hei" value="3.0"/>
+        <param name="map/circle_num" value="100"/>
+        <param name="ObstacleShape/radius_l" value="0.7"/>
+        <param name="ObstacleShape/radius_h" value="0.5"/>
+        <param name="ObstacleShape/z_l" value="0.7"/>
+        <param name="ObstacleShape/z_h" value="0.8"/>
+        <param name="ObstacleShape/theta" value="0.5"/>
+        <param name="pub_rate" value="1.0"/>
+        <param name="min_distance" value="0.8"/>
+    </node>
+    
+    <!-- 局部感知 -->
+    <include file="$(find local_sensing)/launch/local_sensing.launch">
+        <arg name="drone_id" value="$(arg drone_id)"/>
+        <arg name="odom_topic" value="/drone_$(arg drone_id)_visual_slam/odom"/>
+    </include>
+    
+    <!-- ========== 3. EGO规划器（修改支持自适应权重）========== -->
+    
+    <include file="$(find plan_manage)/launch/single_run_in_sim.launch">
+        <arg name="drone_id" value="$(arg drone_id)"/>
+        <arg name="odom_topic" value="visual_slam/odom"/>
+    </include>
+    
+    <!-- ========== 4. 自适应权重系统（基于开源项目）========== -->
+    
+    <!-- 权重自适应预测器（基于DRL-Nav架构 + gym-pybullet-drones训练）-->
+    <group if="$(arg use_adaptive_weights)">
+        <node pkg="adaptive_planning" type="sim_weight_adapter.py" name="sim_weight_adapter_$(arg drone_id)" output="screen">
+            <param name="drone_id" value="$(arg drone_id)"/>
+            <param name="model_path" value="$(arg weights_model_path)"/>
+            <param name="use_learned_weights" value="true"/>
+            <param name="update_rate" value="10.0"/>
+            <param name="sensing_range" value="5.0"/>
+            
+            <!-- 话题重映射到仿真话题 -->
+            <remap from="/odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+            <remap from="/local_pointcloud" to="/drone_$(arg drone_id)_pcl_render_node/cloud"/>
+            <remap from="/global_map" to="/map_generator/global_cloud"/>
+            <remap from="/goal" to="/move_base_simple/goal"/>
+            <remap from="/adaptive_weights" to="/drone_$(arg drone_id)_adaptive_planning/weights"/>
+        </node>
+        
+        <!-- 权重桥接器：将预测的权重应用到ego-planner -->
+        <node pkg="adaptive_planning" type="sim_weight_bridge.py" name="sim_weight_bridge_$(arg drone_id)" output="screen">
+            <param name="drone_id" value="$(arg drone_id)"/>
+            <param name="planner_namespace" value="/drone_$(arg drone_id)_ego_planner"/>
+            <remap from="/adaptive_weights" to="/drone_$(arg drone_id)_adaptive_planning/weights"/>
+        </node>
+    </group>
+    
+    <!-- ========== 5. RL策略层（可选，基于gym-pybullet-drones训练）========== -->
+    
+    <group if="$(arg use_rl_policy)">
+        <node pkg="adaptive_planning" type="sim_rl_policy.py" name="sim_rl_policy_$(arg drone_id)" output="screen">
+            <param name="drone_id" value="$(arg drone_id)"/>
+            <param name="model_path" value="$(find adaptive_planning)/models/nav_policy.ts"/>
+            <param name="control_rate" value="20.0"/>
+            <param name="max_velocity" value="2.0"/>
+            
+            <!-- 订阅仿真状态 -->
+            <remap from="/odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+            <remap from="/goal" to="/move_base_simple/goal"/>
+            <!-- 输出到规划器或直接到控制器 -->
+            <remap from="/cmd_vel" to="/drone_$(arg drone_id)_planning/vel_cmd"/>
+        </node>
+    </group>
+    
+    <!-- ========== 6. 数据收集和评估 ========== -->
+    
+    <group if="$(arg collect_data)">
+        <!-- 专家数据收集器（PyTorchStepByStep风格）-->
+        <node pkg="adaptive_planning" type="sim_data_collector.py" name="sim_data_collector" output="screen">
+            <param name="drone_id" value="$(arg drone_id)"/>
+            <param name="output_dir" value="$(env HOME)/sim_expert_data"/>
+            <param name="collection_rate" value="10.0"/>
+            
+            <!-- 收集的话题 -->
+            <remap from="/odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+            <remap from="/adaptive_weights" to="/drone_$(arg drone_id)_adaptive_planning/weights"/>
+            <remap from="/local_map" to="/drone_$(arg drone_id)_pcl_render_node/cloud"/>
+        </node>
+        
+        <!-- 仿真轨迹质量评估 -->
+        <node pkg="adaptive_planning" type="sim_trajectory_evaluator.py" name="sim_traj_evaluator" output="screen">
+            <param name="drone_id" value="$(arg drone_id)"/>
+            <param name="output_dir" value="$(env HOME)/sim_trajectory_metrics"/>
+            <param name="eval_rate" value="5.0"/>
+            
+            <remap from="/odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+            <remap from="/goal" to="/move_base_simple/goal"/>
+            <remap from="/planned_traj" to="/drone_$(arg drone_id)_planning/trajectory"/>
+        </node>
+    </group>
+    
+    <!-- ========== 7. 可视化（扩展你现有的rviz）========== -->
+    
+    <!-- 无人机可视化 -->
+    <node pkg="odom_visualization" name="odom_visualization_$(arg drone_id)" type="odom_visualization" output="screen">
+        <remap from="~odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+        <param name="color/a" value="0.8"/>    
+        <param name="color/r" value="0.0"/>        
+        <param name="color/g" value="1.0"/>        
+        <param name="color/b" value="0.0"/>       
+        <param name="covariance_scale" value="100.0"/>       
+        <param name="robot_scale" value="1.0"/>
+        <param name="tf45" value="true"/>
+    </node>
+    
+    <!-- 自适应权重可视化 -->
+    <node pkg="adaptive_planning" type="sim_weights_visualizer.py" name="weights_visualizer" output="screen">
+        <param name="drone_id" value="$(arg drone_id)"/>
+        <remap from="/adaptive_weights" to="/drone_$(arg drone_id)_adaptive_planning/weights"/>
+    </node>
+    
+    <!-- RViz -->
+    <node name="rviz" pkg="rviz" type="rviz"
+          args="-d $(find adaptive_planning)/config/sim_adaptive_planning.rviz"/>
+    
+    <!-- ========== 8. 自动任务执行（可选）========== -->
+    
+    <node pkg="adaptive_planning" type="sim_auto_mission.py" name="sim_auto_mission" output="screen">
+        <param name="drone_id" value="$(arg drone_id)"/>
+        <param name="mission_type" value="waypoint_tour"/>  <!-- waypoint_tour, random_goals, benchmark -->
+        <param name="auto_start" value="false"/>  <!-- 手动启动 -->
+        
+        <!-- 预设任务点 -->
+        <rosparam param="waypoints">
+            [[5.0, 0.0, 1.5],
+             [5.0, 5.0, 2.0], 
+             [0.0, 5.0, 1.5],
+             [-5.0, 5.0, 2.0],
+             [-5.0, 0.0, 1.5],
+             [0.0, 0.0, 1.0]]
+        </rosparam>
+    </node>
+    
+</launch>

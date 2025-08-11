@@ -1,0 +1,102 @@
+<launch>
+  <!-- 自适应规划完整演示 launch 文件 -->
+  <!-- 集成所有开源项目的功能 -->
+  
+  <!-- 参数配置 -->
+  <arg name="drone_id" default="0"/>
+  <arg name="use_rl_weights" default="true"/>
+  <arg name="use_rl_control" default="false"/>
+  <arg name="use_swarm_mode" default="false"/>
+  <arg name="num_agents" default="1"/>
+  
+  <!-- 模型路径 -->
+  <arg name="weights_model_path" default="$(find adaptive_planning)/models/adaptive_weights.ts"/>
+  <arg name="control_model_path" default="$(find adaptive_planning)/models/quadcopter_rl_controller.pth"/>
+  
+  <!-- 群体命名空间（当use_swarm_mode=true时使用） -->
+  <arg name="agent_namespaces" default="['/uav0', '/uav1', '/uav2']"/>
+  
+  <!-- 1. 启动基础ego-planner系统 -->
+  <include file="$(find plan_manage)/launch/single_run_in_sim.launch">
+    <arg name="drone_id" value="$(arg drone_id)"/>
+  </include>
+  
+  <!-- 2. 自适应权重预测器（基于DRL-Nav + gym-pybullet-drones训练） -->
+  <group if="$(arg use_rl_weights)">
+    <node pkg="adaptive_planning" type="weight_adapter_node" name="adaptive_weight_adapter" output="screen">
+      <param name="model_path" value="$(arg weights_model_path)"/>
+      <param name="use_learned_weights" value="true"/>
+      <param name="update_rate" value="10.0"/>
+      
+      <!-- 话题重映射 -->
+      <remap from="/drone_0_visual_slam/odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+      <remap from="/drone_0_pcl_render_node/cloud" to="/drone_$(arg drone_id)_pcl_render_node/cloud"/>
+    </node>
+    
+    <!-- 权重应用到规划器（需要修改ego-planner支持动态权重订阅） -->
+    <node pkg="adaptive_planning" type="weight_bridge.py" name="weight_bridge" output="screen">
+      <param name="planner_namespace" value="/drone_$(arg drone_id)_ego_planner"/>
+      <remap from="/adaptive_planning/weights" to="/adaptive_planning/weights"/>
+    </node>
+  </group>
+  
+  <!-- 3. RL低层控制器（基于Autonomous-Quadcopter-Control-RL，可选） -->
+  <group if="$(arg use_rl_control)">
+    <node pkg="adaptive_planning" type="rl_controller.py" name="rl_controller" output="screen">
+      <param name="model_path" value="$(arg control_model_path)"/>
+      <param name="use_rl_control" value="true"/>
+      <param name="control_rate" value="50.0"/>
+      
+      <!-- 话题重映射 -->
+      <remap from="/drone_0_visual_slam/odom" to="/drone_$(arg drone_id)_visual_slam/odom"/>
+    </node>
+  </group>
+  
+  <!-- 4. 群体协调（基于Drooid算法，可选） -->
+  <group if="$(arg use_swarm_mode)">
+    <node pkg="adaptive_planning" type="drooid_swarm.py" name="drooid_coordinator" output="screen">
+      <param name="num_agents" value="$(arg num_agents)"/>
+      <param name="agent_namespaces" value="$(arg agent_namespaces)"/>
+      
+      <!-- Drooid算法参数 -->
+      <param name="sensing_radius" value="3.0"/>
+      <param name="safe_distance" value="1.0"/>
+      <param name="formation_gain" value="1.0"/>
+      <param name="cohesion_gain" value="0.5"/>
+      <param name="separation_gain" value="2.0"/>
+      <param name="alignment_gain" value="0.3"/>
+      <param name="goal_gain" value="1.5"/>
+      <param name="max_speed" value="2.0"/>
+      <param name="formation_type" value="line"/>
+      <param name="formation_size" value="2.0"/>
+    </node>
+  </group>
+  
+  <!-- 5. 数据收集和评估 -->
+  <node pkg="adaptive_planning" type="data_collection_eval.py" name="data_collector" output="screen">
+    <param name="output_dir" value="$(env HOME)/adaptive_planning_data"/>
+    <param name="auto_save_interval" value="60.0"/>
+  </node>
+  
+  <!-- 6. 轨迹质量监控 -->
+  <node pkg="adaptive_planning" type="trajectory_metrics.py" name="trajectory_metrics" output="screen">
+    <param name="odom_topic" value="/drone_$(arg drone_id)_visual_slam/odom"/>
+    <param name="setpoint_topic" value="/move_base_simple/goal"/>
+    <param name="output_dir" value="$(env HOME)/adaptive_planning_metrics"/>
+    <param name="metrics_rate" value="10.0"/>
+  </node>
+  
+  <!-- 7. 可视化和调试 -->
+  <node pkg="rviz" type="rviz" name="adaptive_planning_rviz" 
+        args="-d $(find adaptive_planning)/launch/adaptive_planning.rviz" output="screen"/>
+  
+  <!-- 8. 日志和记录 -->
+  <node pkg="rosbag" type="record" name="adaptive_planning_recorder"
+        args="-O $(env HOME)/adaptive_planning_logs/session_$(anon time).bag 
+              /adaptive_planning/weights 
+              /drone_$(arg drone_id)_visual_slam/odom
+              /move_base_simple/goal
+              /mavros/setpoint_velocity/cmd_vel
+              /swarm/agent_states
+              /adaptive_planning/trajectory_metrics"/>
+</launch>
