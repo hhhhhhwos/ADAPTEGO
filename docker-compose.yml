@@ -1,0 +1,30 @@
+services:
+  adaptego-full:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER_ID: 1000
+        GROUP_ID: 1000
+    container_name: adaptego-full-env
+    volumes:
+      # 只挂载输出目录到主机（保留结果）
+      - ./models:/app/AdaptEgo/models
+      - ./data:/app/AdaptEgo/data
+      - ./results:/app/AdaptEgo/results
+      - ./logs:/app/AdaptEgo/logs
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    ports:
+      - "6006:6006"  # TensorBoard端口
+    network_mode: host

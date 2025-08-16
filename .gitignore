@@ -2,20 +2,93 @@
 build/
 devel/
 
-# IDE配置
-.vscode/
-.idea/
-
-# 系统文件
-.DS_Store
-*~
-
-# 编译文件
-*.o
-*.so
-*.a
-
-# 日志文件
-*.log
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
+
+# ROS build artifacts
+build/
+devel/
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+eggs/
+parts/
+sdist/
+var/
+*.egg-info/
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environments
 *.pyc
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large project folders (do not track by default)
+
+models/
+logs/
+results/
+paper/
+experiments/data/
+
+# Large binary file types
+*.npz
+*.pth
+*.ckpt
+*.pt
+*.h5
+*.tar.gz
+
+# sensitive / runtime
+*.env
+*.secret
