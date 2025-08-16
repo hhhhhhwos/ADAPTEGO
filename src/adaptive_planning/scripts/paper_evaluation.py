@@ -1,28 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
-论文实验评估脚本
-基于集成的多个开源项目进行系统性对比实验
+AdaptEgo 论文实验评估系统
+完整的基线对比、消融研究和性能分析框架
 """
 
 import os
-import sys
-import time
-import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import subprocess
+import seaborn as sns
 from datetime import datetime
-import argparse
+import json
+import subprocess
+import time
+import rospy
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry, Path
+from std_msgs.msg import Float32MultiArray, Bool
+import threading
+from collections import defaultdict
 
-class PaperExperimentEvaluator:
-    """论文实验评估器"""
+class BaselineMethod:
+    """基线方法基类"""
+    def __init__(self, name, description=""):
+        self.name = name
+        self.description = description
+        self.results = []
     
-    def __init__(self, output_dir="paper_experiments"):
-        self.output_dir = output_dir
-        self.results = {}
-        os.makedirs(output_dir, exist_ok=True)
+    def set_parameters(self, params):
+        """设置方法参数"""
+        raise NotImplementedError
+    
+    def reset(self):
+        """重置方法状态"""
+        pass
         
         # 实验配置
         self.experiment_configs = {

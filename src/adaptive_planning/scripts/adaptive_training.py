@@ -17,12 +17,18 @@ from torch.utils.tensorboard import SummaryWriter
 import pickle
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-import rospy
-from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Odometry
-from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Float32MultiArray
-import tf.transformations as tf_trans
+# ROS2兼容导入 - 仅在ROS环境下使用
+try:
+    import rclpy
+    from geometry_msgs.msg import PoseStamped
+    from nav_msgs.msg import Odometry
+    from sensor_msgs.msg import LaserScan
+    from std_msgs.msg import Float32MultiArray
+    ROS_AVAILABLE = True
+    print("✅ ROS2环境可用")
+except ImportError:
+    ROS_AVAILABLE = False
+    print("⚠️  ROS2环境不可用，使用纯Python模式")
 
 class WeightPredictorNetwork(nn.Module):
     """
